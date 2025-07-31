@@ -1,7 +1,5 @@
 use crate::greedy::face_needs_mesh;
-use crate::{DefaultVoxelContext, Voxel};
-
-use super::MergeVoxel;
+use crate::MergeVoxelContext;
 
 // TODO: implement a MergeStrategy for voxels with an ambient occlusion value at each vertex
 
@@ -28,16 +26,17 @@ pub trait MergeStrategy {
     ///
     /// Some implementations may use unchecked indexing of `voxels` for performance. If this trait is not invoked with correct
     /// arguments, access out of bounds may cause undefined behavior.
-    unsafe fn find_quad(
+    unsafe fn find_quad<C>(
         min_index: u32,
         max_width: u32,
         max_height: u32,
         face_strides: &FaceStrides,
         voxels: &[Self::Voxel],
         visited: &[bool],
+        ctx: &C,
     ) -> (u32, u32)
     where
-        Self::Voxel: Voxel;
+        C: MergeVoxelContext<Self::Voxel>;
 }
 
 pub struct FaceStrides {
@@ -51,25 +50,26 @@ pub struct VoxelMerger<T> {
     marker: std::marker::PhantomData<T>,
 }
 
-impl<T> MergeStrategy for VoxelMerger<T>
-where
-    T: MergeVoxel,
-{
+impl<T> MergeStrategy for VoxelMerger<T> {
     type Voxel = T;
 
-    unsafe fn find_quad(
+    unsafe fn find_quad<C>(
         min_index: u32,
         max_width: u32,
         max_height: u32,
         face_strides: &FaceStrides,
         voxels: &[T],
         visited: &[bool],
-    ) -> (u32, u32) {
+        ctx: &C,
+    ) -> (u32, u32)
+    where
+        C: MergeVoxelContext<Self::Voxel>,
+    {
         // Greedily search for the biggest visible quad where all merge values are the same.
-        let quad_value = voxels.get_unchecked(min_index as usize).merge_value();
-        let quad_neighbour_value = voxels
-            .get_unchecked(min_index.wrapping_add(face_strides.visibility_offset) as usize)
-            .merge_value_facing_neighbour();
+        let quad_value = ctx.merge_value(voxels.get_unchecked(min_index as usize));
+        let quad_neighbour_value = ctx.merge_value_facing_neighbour(
+            voxels.get_unchecked(min_index.wrapping_add(face_strides.visibility_offset) as usize),
+        );
 
         // Start by finding the widest quad in the U direction.
         let mut row_start_stride = min_index;
@@ -82,6 +82,7 @@ where
             row_start_stride,
             face_strides.u_stride,
             max_width,
+            ctx,
         );
 
         // Now see how tall we can make the quad in the V direction without changing the width.
@@ -97,6 +98,7 @@ where
                 row_start_stride,
                 face_strides.u_stride,
                 quad_width,
+                ctx,
             );
             if row_width < quad_width {
                 break;
@@ -110,18 +112,19 @@ where
 }
 
 impl<T> VoxelMerger<T> {
-    unsafe fn get_row_width(
+    unsafe fn get_row_width<C>(
         voxels: &[T],
         visited: &[bool],
-        quad_merge_voxel_value: &T::MergeValue,
-        quad_merge_voxel_value_facing_neighbour: &T::MergeValueFacingNeighbour,
+        quad_merge_voxel_value: &C::MergeValue,
+        quad_merge_voxel_value_facing_neighbour: &C::MergeValueFacingNeighbour,
         visibility_offset: u32,
         start_stride: u32,
         delta_stride: u32,
         max_width: u32,
+        ctx: &C,
     ) -> u32
     where
-        T: MergeVoxel,
+        C: MergeVoxelContext<T>,
     {
         let mut quad_width = 0;
         let mut row_stride = start_stride;
@@ -130,13 +133,13 @@ impl<T> VoxelMerger<T> {
             let neighbour =
                 voxels.get_unchecked(row_stride.wrapping_add(visibility_offset) as usize);
 
-            if !face_needs_mesh(voxel, row_stride, visibility_offset, voxels, visited, &DefaultVoxelContext) {
+            if !face_needs_mesh(voxel, row_stride, visibility_offset, voxels, visited, ctx) {
                 break;
             }
 
-            if !voxel.merge_value().eq(quad_merge_voxel_value)
-                || !neighbour
-                    .merge_value_facing_neighbour()
+            if !ctx.merge_value(voxel).eq(quad_merge_voxel_value)
+                || !ctx
+                    .merge_value_facing_neighbour(neighbour)
                     .eq(quad_merge_voxel_value_facing_neighbour)
             {
                 // Voxel needs to be non-empty and match the quad merge value.

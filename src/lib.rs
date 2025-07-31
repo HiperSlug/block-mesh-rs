@@ -19,6 +19,7 @@
 //! ```
 //! use block_mesh::ndshape::{ConstShape, ConstShape3u32};
 //! use block_mesh::{greedy_quads, GreedyQuadsBuffer, MergeVoxel, Voxel, VoxelVisibility, RIGHT_HANDED_Y_UP_CONFIG};
+//! use block_mesh::DefaultVoxelContext;
 //!
 //! #[derive(Clone, Copy, Eq, PartialEq)]
 //! struct BoolVoxel(bool);
@@ -70,7 +71,8 @@
 //!     [0; 3],
 //!     [17; 3],
 //!     &RIGHT_HANDED_Y_UP_CONFIG.faces,
-//!     &mut buffer
+//!     &mut buffer,
+//!     &DefaultVoxelContext,
 //! );
 //!
 //! // Some quads were generated.
@@ -109,25 +111,17 @@ pub trait Voxel {
     fn get_visibility(&self) -> VoxelVisibility;
 }
 
-/// Used as a dummy for functions that must wrap a voxel
-/// but don't want to change the original's properties.
-struct IdentityVoxel<'a, T: Voxel>(&'a T);
-
-impl<'a, T: Voxel> Voxel for IdentityVoxel<'a, T> {
-    #[inline]
-    fn get_visibility(&self) -> VoxelVisibility {
-        self.0.get_visibility()
-    }
-}
-
-impl<'a, T: Voxel> From<&'a T> for IdentityVoxel<'a, T> {
-    fn from(voxel: &'a T) -> Self {
-        Self(voxel)
-    }
-}
-
 pub trait VoxelContext<T> {
     fn get_visibility(&self, voxel: &T) -> VoxelVisibility;
+}
+
+pub trait MergeVoxelContext<T>: VoxelContext<T> {
+    type MergeValue: Eq;
+    type MergeValueFacingNeighbour: Eq;
+
+    fn merge_value(&self, voxel: &T) -> Self::MergeValue;
+
+    fn merge_value_facing_neighbour(&self, voxel: &T) -> Self::MergeValueFacingNeighbour;
 }
 
 pub struct DefaultVoxelContext;
@@ -135,5 +129,18 @@ pub struct DefaultVoxelContext;
 impl<T: Voxel> VoxelContext<T> for DefaultVoxelContext {
     fn get_visibility(&self, voxel: &T) -> VoxelVisibility {
         voxel.get_visibility()
+    }
+}
+
+impl<T: MergeVoxel> MergeVoxelContext<T> for DefaultVoxelContext {
+    type MergeValue = T::MergeValue;
+    type MergeValueFacingNeighbour = T::MergeValueFacingNeighbour;
+
+    fn merge_value(&self, voxel: &T) -> Self::MergeValue {
+        voxel.merge_value()
+    }
+
+    fn merge_value_facing_neighbour(&self, voxel: &T) -> Self::MergeValueFacingNeighbour {
+        voxel.merge_value_facing_neighbour()
     }
 }

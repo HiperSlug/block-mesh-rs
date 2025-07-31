@@ -2,8 +2,10 @@ mod merge_strategy;
 
 pub use merge_strategy::*;
 
-use crate::{DefaultVoxelContext, VoxelContext};
-use crate::{bounds::assert_in_bounds, OrientedBlockFace, QuadBuffer, UnorientedQuad, Voxel, VoxelVisibility};
+use crate::{
+    bounds::assert_in_bounds, OrientedBlockFace, QuadBuffer, UnorientedQuad, Voxel, VoxelVisibility,
+};
+use crate::{MergeVoxelContext, VoxelContext};
 
 use ilattice::glam::UVec3;
 use ilattice::prelude::Extent;
@@ -59,39 +61,42 @@ impl GreedyQuadsBuffer {
 ///
 /// All quads created will have the same "merge value" as defined by the [`MergeVoxel`] trait. The quads can be post-processed
 /// into meshes as the user sees fit.
-pub fn greedy_quads<T, S>(
+pub fn greedy_quads<T, S, C>(
     voxels: &[T],
     voxels_shape: &S,
     min: [u32; 3],
     max: [u32; 3],
     faces: &[OrientedBlockFace; 6],
     output: &mut GreedyQuadsBuffer,
+    ctx: &C,
 ) where
-    T: MergeVoxel,
     S: Shape<3, Coord = u32>,
+    C: MergeVoxelContext<T>,
 {
-    greedy_quads_with_merge_strategy::<_, _, VoxelMerger<T>>(
+    greedy_quads_with_merge_strategy::<_, _, VoxelMerger<T>, _>(
         voxels,
         voxels_shape,
         min,
         max,
         faces,
         output,
+        ctx,
     )
 }
 
 /// Run the greedy meshing algorithm with a custom quad merging strategy using the [`MergeStrategy`] trait.
-pub fn greedy_quads_with_merge_strategy<T, S, Merger>(
+pub fn greedy_quads_with_merge_strategy<T, S, Merger, C>(
     voxels: &[T],
     voxels_shape: &S,
     min: [u32; 3],
     max: [u32; 3],
     faces: &[OrientedBlockFace; 6],
     output: &mut GreedyQuadsBuffer,
+    ctx: &C,
 ) where
-    T: Voxel,
     S: Shape<3, Coord = u32>,
     Merger: MergeStrategy<Voxel = T>,
+    C: MergeVoxelContext<T>,
 {
     assert_in_bounds(voxels, voxels_shape, min, max);
 
@@ -110,21 +115,30 @@ pub fn greedy_quads_with_merge_strategy<T, S, Merger>(
         Extent::from_min_and_shape(interior.minimum.as_uvec3(), interior.shape.as_uvec3());
 
     for (group, face) in groups.iter_mut().zip(faces.iter()) {
-        greedy_quads_for_face::<_, _, Merger>(voxels, voxels_shape, interior, face, visited, group);
+        greedy_quads_for_face::<_, _, Merger, _>(
+            voxels,
+            voxels_shape,
+            interior,
+            face,
+            visited,
+            group,
+            ctx,
+        );
     }
 }
 
-fn greedy_quads_for_face<T, S, Merger>(
+fn greedy_quads_for_face<T, S, Merger, C>(
     voxels: &[T],
     voxels_shape: &S,
     interior: Extent<UVec3>,
     face: &OrientedBlockFace,
     visited: &mut [bool],
     quads: &mut Vec<UnorientedQuad>,
+    ctx: &C,
 ) where
-    T: Voxel,
     S: Shape<3, Coord = u32>,
     Merger: MergeStrategy<Voxel = T>,
+    C: MergeVoxelContext<T>,
 {
     visited.fill(false);
 
@@ -181,7 +195,7 @@ fn greedy_quads_for_face<T, S, Merger>(
                     face_strides.visibility_offset,
                     voxels,
                     visited,
-                    &DefaultVoxelContext
+                    ctx,
                 )
             } {
                 continue;
@@ -200,6 +214,7 @@ fn greedy_quads_for_face<T, S, Merger>(
                     &face_strides,
                     voxels,
                     visited,
+                    ctx,
                 )
             };
             debug_assert!(quad_width >= 1);
@@ -258,7 +273,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RIGHT_HANDED_Y_UP_CONFIG;
+    use crate::{DefaultVoxelContext, RIGHT_HANDED_Y_UP_CONFIG};
     use ndshape::{ConstShape, ConstShape3u32};
 
     #[test]
@@ -273,6 +288,7 @@ mod tests {
             [34, 33, 33],
             &RIGHT_HANDED_Y_UP_CONFIG.faces,
             &mut buffer,
+            &DefaultVoxelContext,
         );
     }
 
@@ -288,6 +304,7 @@ mod tests {
             [33; 3],
             &RIGHT_HANDED_Y_UP_CONFIG.faces,
             &mut buffer,
+            &DefaultVoxelContext,
         );
     }
 

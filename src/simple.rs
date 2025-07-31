@@ -1,35 +1,35 @@
-use crate::{DefaultVoxelContext, VoxelContext};
 use crate::{
-    bounds::assert_in_bounds, IdentityVoxel, OrientedBlockFace, UnitQuadBuffer, UnorientedUnitQuad, Voxel, VoxelVisibility,
+    bounds::assert_in_bounds, OrientedBlockFace, UnitQuadBuffer, UnorientedUnitQuad, VoxelVisibility,
 };
+use crate::VoxelContext;
 
 use ilattice::glam::UVec3;
 use ilattice::prelude::Extent;
 use ndshape::Shape;
 
-
 /// A fast and simple meshing algorithm that produces a single quad for every visible face of a block.
 ///
 /// This is faster than [`greedy_quads`](crate::greedy_quads) but it produces many more quads.
-pub fn visible_block_faces<T, S>(
+pub fn visible_block_faces<T, S, C>(
     voxels: &[T],
     voxels_shape: &S,
     min: [u32; 3],
     max: [u32; 3],
     faces: &[OrientedBlockFace; 6],
     output: &mut UnitQuadBuffer,
+    ctx: &C
 ) where
-    T: Voxel,
     S: Shape<3, Coord = u32>,
+    C: VoxelContext<T>
 {
-    visible_block_faces_with_voxel_view::<_, IdentityVoxel<T>, _, _>(
+    visible_block_faces_with_voxel_view(
         voxels,
         voxels_shape,
         min,
         max,
         faces,
         output,
-        &DefaultVoxelContext
+        ctx,
     )
 }
 
@@ -37,7 +37,7 @@ pub fn visible_block_faces<T, S>(
 /// with the additional ability to interpret the array as some other type.
 /// Use this if you want to mesh the same array multiple times
 /// with different sets of voxels being visible.
-pub fn visible_block_faces_with_voxel_view<'a, T, V, S, C>(
+pub fn visible_block_faces_with_voxel_view<'a, T, S, C>(
     voxels: &'a [T],
     voxels_shape: &S,
     min: [u32; 3],
@@ -46,8 +46,7 @@ pub fn visible_block_faces_with_voxel_view<'a, T, V, S, C>(
     output: &mut UnitQuadBuffer,
     ctx: &C,
 ) where
-    V: From<&'a T>,
-    C: VoxelContext<V>,
+    C: VoxelContext<T>,
     S: Shape<3, Coord = u32>,
 {
     assert_in_bounds(voxels, voxels_shape, min, max);
@@ -65,7 +64,7 @@ pub fn visible_block_faces_with_voxel_view<'a, T, V, S, C>(
     for p in interior.iter3() {
         let p_array = p.to_array();
         let p_index = voxels_shape.linearize(p_array);
-        let p_voxel = V::from(unsafe { voxels.get_unchecked(p_index as usize) });
+        let p_voxel = unsafe { voxels.get_unchecked(p_index as usize) };
 
         if let VoxelVisibility::Empty = ctx.get_visibility(&p_voxel) {
             continue;
@@ -73,13 +72,15 @@ pub fn visible_block_faces_with_voxel_view<'a, T, V, S, C>(
 
         for (face_index, face_stride) in kernel_strides.into_iter().enumerate() {
             let neighbor_index = p_index.wrapping_add(face_stride);
-            let neighbor_voxel = V::from(unsafe { voxels.get_unchecked(neighbor_index as usize) });
+            let neighbor_voxel = unsafe { voxels.get_unchecked(neighbor_index as usize) };
 
             // TODO: If the face lies between two transparent voxels, we choose not to mesh it. We might need to extend the
             // IsOpaque trait with different levels of transparency to support this.
             let face_needs_mesh = match ctx.get_visibility(&neighbor_voxel) {
                 VoxelVisibility::Empty => true,
-                VoxelVisibility::Translucent => ctx.get_visibility(&p_voxel) == VoxelVisibility::Opaque,
+                VoxelVisibility::Translucent => {
+                    ctx.get_visibility(&p_voxel) == VoxelVisibility::Opaque
+                }
                 VoxelVisibility::Opaque => false,
             };
 
@@ -93,7 +94,7 @@ pub fn visible_block_faces_with_voxel_view<'a, T, V, S, C>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RIGHT_HANDED_Y_UP_CONFIG;
+    use crate::{DefaultVoxelContext, Voxel, RIGHT_HANDED_Y_UP_CONFIG};
     use ndshape::{ConstShape, ConstShape3u32};
 
     #[test]
@@ -108,6 +109,7 @@ mod tests {
             [34, 33, 33],
             &RIGHT_HANDED_Y_UP_CONFIG.faces,
             &mut buffer,
+            &DefaultVoxelContext
         );
     }
 
@@ -123,6 +125,7 @@ mod tests {
             [33; 3],
             &RIGHT_HANDED_Y_UP_CONFIG.faces,
             &mut buffer,
+            &DefaultVoxelContext
         );
     }
 
@@ -143,5 +146,4 @@ mod tests {
             }
         }
     }
-
 }
