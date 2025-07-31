@@ -1,5 +1,5 @@
 use crate::greedy::face_needs_mesh;
-use crate::Voxel;
+use crate::{DefaultVoxelContext, Voxel};
 
 use super::MergeVoxel;
 
@@ -130,7 +130,7 @@ impl<T> VoxelMerger<T> {
             let neighbour =
                 voxels.get_unchecked(row_stride.wrapping_add(visibility_offset) as usize);
 
-            if !face_needs_mesh(voxel, row_stride, visibility_offset, voxels, visited) {
+            if !face_needs_mesh(voxel, row_stride, visibility_offset, voxels, visited, &DefaultVoxelContext) {
                 break;
             }
 

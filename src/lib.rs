@@ -125,3 +125,15 @@ impl<'a, T: Voxel> From<&'a T> for IdentityVoxel<'a, T> {
         Self(voxel)
     }
 }
+
+pub trait VoxelContext<T> {
+    fn get_visibility(&self, voxel: &T) -> VoxelVisibility;
+}
+
+pub struct DefaultVoxelContext;
+
+impl<T: Voxel> VoxelContext<T> for DefaultVoxelContext {
+    fn get_visibility(&self, voxel: &T) -> VoxelVisibility {
+        voxel.get_visibility()
+    }
+}

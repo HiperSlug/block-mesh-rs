@@ -1,3 +1,4 @@
+use crate::{DefaultVoxelContext, VoxelContext};
 use crate::{
     bounds::assert_in_bounds, IdentityVoxel, OrientedBlockFace, UnitQuadBuffer, UnorientedUnitQuad, Voxel, VoxelVisibility,
 };
@@ -21,13 +22,14 @@ pub fn visible_block_faces<T, S>(
     T: Voxel,
     S: Shape<3, Coord = u32>,
 {
-    visible_block_faces_with_voxel_view::<_, IdentityVoxel<T>, _>(
+    visible_block_faces_with_voxel_view::<_, IdentityVoxel<T>, _, _>(
         voxels,
         voxels_shape,
         min,
         max,
         faces,
         output,
+        &DefaultVoxelContext
     )
 }
 
@@ -35,15 +37,17 @@ pub fn visible_block_faces<T, S>(
 /// with the additional ability to interpret the array as some other type.
 /// Use this if you want to mesh the same array multiple times
 /// with different sets of voxels being visible.
-pub fn visible_block_faces_with_voxel_view<'a, T, V, S>(
+pub fn visible_block_faces_with_voxel_view<'a, T, V, S, C>(
     voxels: &'a [T],
     voxels_shape: &S,
     min: [u32; 3],
     max: [u32; 3],
     faces: &[OrientedBlockFace; 6],
     output: &mut UnitQuadBuffer,
+    ctx: &C,
 ) where
-    V: Voxel + From<&'a T>,
+    V: From<&'a T>,
+    C: VoxelContext<V>,
     S: Shape<3, Coord = u32>,
 {
     assert_in_bounds(voxels, voxels_shape, min, max);
@@ -63,7 +67,7 @@ pub fn visible_block_faces_with_voxel_view<'a, T, V, S>(
         let p_index = voxels_shape.linearize(p_array);
         let p_voxel = V::from(unsafe { voxels.get_unchecked(p_index as usize) });
 
-        if let VoxelVisibility::Empty = p_voxel.get_visibility() {
+        if let VoxelVisibility::Empty = ctx.get_visibility(&p_voxel) {
             continue;
         }
 
@@ -73,9 +77,9 @@ pub fn visible_block_faces_with_voxel_view<'a, T, V, S>(
 
             // TODO: If the face lies between two transparent voxels, we choose not to mesh it. We might need to extend the
             // IsOpaque trait with different levels of transparency to support this.
-            let face_needs_mesh = match neighbor_voxel.get_visibility() {
+            let face_needs_mesh = match ctx.get_visibility(&neighbor_voxel) {
                 VoxelVisibility::Empty => true,
-                VoxelVisibility::Translucent => p_voxel.get_visibility() == VoxelVisibility::Opaque,
+                VoxelVisibility::Translucent => ctx.get_visibility(&p_voxel) == VoxelVisibility::Opaque,
                 VoxelVisibility::Opaque => false,
             };
 

@@ -2,6 +2,7 @@ mod merge_strategy;
 
 pub use merge_strategy::*;
 
+use crate::{DefaultVoxelContext, VoxelContext};
 use crate::{bounds::assert_in_bounds, OrientedBlockFace, QuadBuffer, UnorientedQuad, Voxel, VoxelVisibility};
 
 use ilattice::glam::UVec3;
@@ -180,6 +181,7 @@ fn greedy_quads_for_face<T, S, Merger>(
                     face_strides.visibility_offset,
                     voxels,
                     visited,
+                    &DefaultVoxelContext
                 )
             } {
                 continue;
@@ -226,17 +228,18 @@ fn greedy_quads_for_face<T, S, Merger>(
 
 /// Returns true iff the given `voxel` face needs to be meshed. This means that we haven't already meshed it, it is non-empty,
 /// and it's visible (not completely occluded by an adjacent voxel).
-pub(crate) unsafe fn face_needs_mesh<T>(
+pub(crate) unsafe fn face_needs_mesh<T, C>(
     voxel: &T,
     voxel_stride: u32,
     visibility_offset: u32,
     voxels: &[T],
     visited: &[bool],
+    ctx: &C,
 ) -> bool
 where
-    T: Voxel,
+    C: VoxelContext<T>,
 {
-    if voxel.get_visibility() == VoxelVisibility::Empty || visited[voxel_stride as usize] {
+    if ctx.get_visibility(voxel) == VoxelVisibility::Empty || visited[voxel_stride as usize] {
         return false;
     }
 
@@ -245,9 +248,9 @@ where
 
     // TODO: If the face lies between two transparent voxels, we choose not to mesh it. We might need to extend the IsOpaque
     // trait with different levels of transparency to support this.
-    match adjacent_voxel.get_visibility() {
+    match ctx.get_visibility(adjacent_voxel) {
         VoxelVisibility::Empty => true,
-        VoxelVisibility::Translucent => voxel.get_visibility() == VoxelVisibility::Opaque,
+        VoxelVisibility::Translucent => ctx.get_visibility(voxel) == VoxelVisibility::Opaque,
         VoxelVisibility::Opaque => false,
     }
 }
