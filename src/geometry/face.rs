@@ -41,6 +41,18 @@ impl OrientedBlockFace {
     }
 
     #[inline]
+    pub fn signed_axis(&self) -> SignedAxis {
+        use Axis::*;
+        let axis = match self.n.to_array() {
+            [1, 0, 0] => X,
+            [0, 1, 0] => Y,
+            [0, 0, 1] => Z,
+            _ => unreachable!("n must be a unit vector"),
+        };
+        SignedAxis::new(self.n_sign, axis)
+    }
+
+    #[inline]
     pub fn n_sign(&self) -> i32 {
         self.n_sign
     }
